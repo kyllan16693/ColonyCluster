@@ -8,7 +8,7 @@
       import_playbook: router.yml
       
     - name: Update all Pi nodes
-      import_playbook: update_pis_direct.yml 
+      import_playbook: update_pis.yml 
 
     - name: Set up python virtual environment on all nodes
       import_playbook: setup_python.yml
