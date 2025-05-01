@@ -1,7 +1,11 @@
 # Colony Cluster
 
+![Front View of Cluster](images/main.jpeg)
+
 ## Overview
 A distributed simulation of ant colonies demonstrating the power of cluster computing with Raspberry Pi. This project simulates ant behavior across multiple Raspberry Pi nodes, with each node handling a separate colony of ants searching for food resources in a shared environment.
+
+![Simulation in Action](images/sim-window.gif)
 
 ## Hardware Requirements
 - 1 Raspberry Pi (main node) with desktop environment
