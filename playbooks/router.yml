@@ -1,0 +1,204 @@
+# This playbook configures the control node as a router for the Pi cluster. This way only one node needs to have internet access.
+# It also configures the compute nodes to use the control node as the gateway.
+---
+- name: Configure pi1 as a router for the Pi cluster
+  hosts: pi_control
+  gather_facts: false
+  become: true
+
+  handlers:
+    - name: restart dnsmasq
+      ansible.builtin.service:
+        name: dnsmasq
+        state: restarted
+
+    - name: persist iptables rules
+      ansible.builtin.command: netfilter-persistent save
+
+  tasks:
+    - name: Install routing prerequisites
+      ansible.builtin.apt:
+        name:
+          - netfilter-persistent
+          - iptables-persistent
+        state: present
+        update_cache: yes
+
+    - name: Ensure netfilter-persistent is enabled
+      ansible.builtin.service:
+        name: netfilter-persistent
+        enabled: true
+
+    - name: Check if dnsmasq is already installed
+      command: dpkg -s dnsmasq
+      register: dnsmasq_check
+      changed_when: false
+      failed_when: false
+
+    - name: Backup existing dnsmasq configuration if it exists
+      copy:
+        src: /etc/dnsmasq.conf
+        dest: /etc/dnsmasq.conf.backup
+        remote_src: yes
+      when: dnsmasq_check.rc == 0
+      ignore_errors: yes
+
+    - name: Backup existing dnsmasq.d directory if it exists
+      shell: "if [ -d /etc/dnsmasq.d ]; then cp -r /etc/dnsmasq.d /etc/dnsmasq.d.backup; fi"
+      changed_when: false
+      when: dnsmasq_check.rc == 0
+
+    - name: Install dnsmasq if not already installed
+      ansible.builtin.apt:
+        name: dnsmasq
+        state: present
+      when: dnsmasq_check.rc != 0
+
+    - name: Ensure dnsmasq is running and enabled
+      ansible.builtin.service:
+        name: dnsmasq
+        state: started
+        enabled: true
+
+    - name: Get external network interface (connected to internet)
+      shell: "ip route | grep default | awk '{print $5}'"
+      register: external_iface
+      changed_when: false
+
+    - name: Get internal network interface (connected to switch)
+      shell: "ip -o link show | grep -v lo | grep -v {{ external_iface.stdout }} | head -n 1 | awk -F': ' '{print $2}'"
+      register: internal_iface
+      changed_when: false
+
+    - name: Display network interfaces
+      debug:
+        msg: 
+          - "External interface (internet): {{ external_iface.stdout }}"
+          - "Internal interface (switch): {{ internal_iface.stdout }}"
+
+    - name: Configure iptables for masquerade
+      ansible.builtin.iptables:
+        table: nat
+        chain: POSTROUTING
+        out_interface: "{{ external_iface.stdout }}"
+        jump: MASQUERADE
+      notify: persist iptables rules
+
+    - name: Allow forwarded packets
+      ansible.builtin.iptables:
+        chain: FORWARD
+        in_interface: "{{ internal_iface.stdout }}"
+        out_interface: "{{ external_iface.stdout }}"
+        jump: ACCEPT
+        state: present
+      notify: persist iptables rules
+
+    - name: Allow established connections
+      ansible.builtin.iptables:
+        chain: FORWARD
+        in_interface: "{{ external_iface.stdout }}"
+        out_interface: "{{ internal_iface.stdout }}"
+        ctstate: ESTABLISHED,RELATED
+        jump: ACCEPT
+        state: present
+      notify: persist iptables rules
+
+    - name: Enable IPv4 forwarding
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        sysctl_set: yes
+        state: present
+
+    - name: Check if dnsmasq.d directory exists
+      stat:
+        path: /etc/dnsmasq.d
+      register: dnsmasq_d_dir
+
+    - name: Create dnsmasq.d directory if it doesn't exist
+      file:
+        path: /etc/dnsmasq.d
+        state: directory
+        mode: '0755'
+      when: not dnsmasq_d_dir.stat.exists
+
+    - name: Configure dnsmasq for DNS forwarding (preserving existing configuration)
+      ansible.builtin.copy:
+        dest: /etc/dnsmasq.d/forwarding.conf
+        content: |
+          # Forward DNS queries to external DNS servers
+          server=1.1.1.1
+          server=1.0.0.1
+      notify: restart dnsmasq
+
+    - name: Add crontab task to restart dnsmasq
+      ansible.builtin.cron:
+        name: "restart dnsmasq if not running"
+        minute: "*"
+        job: "/usr/bin/systemctl status dnsmasq || /usr/bin/systemctl restart dnsmasq"
+
+    - name: Get pi1 internal IP address
+      shell: "ip addr show {{ internal_iface.stdout }} | grep 'inet ' | awk '{print $2}' | cut -d/ -f1"
+      register: pi1_internal_ip
+      changed_when: false
+      
+    - name: Display router information
+      debug:
+        msg: "Pi1 is now configured as a router with internal IP: {{ pi1_internal_ip.stdout }}"
+
+- name: Configure compute nodes to use pi1 as gateway
+  hosts: pi_compute
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    router_ip: "{{ hostvars[groups['pi_control'][0]].pi1_internal_ip.stdout }}"
+  
+  tasks:
+    - name: Add pi1 to /etc/hosts if not already present
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ router_ip }} pi1 pi1.local"
+        state: present
+        
+    - name: Set pi1 as default gateway
+      shell: "ip route replace default via {{ router_ip }}"
+      
+    - name: Check if dhcpcd.conf exists
+      stat:
+        path: /etc/dhcpcd.conf
+      register: dhcpcd_conf
+      
+    - name: Make default gateway persistent with dhcpcd (if exists)
+      lineinfile:
+        path: /etc/dhcpcd.conf
+        line: "static routers={{ router_ip }}"
+        state: present
+      when: dhcpcd_conf.stat.exists
+      
+    - name: Create network interfaces directory if it doesn't exist
+      file:
+        path: /etc/network/interfaces.d
+        state: directory
+        mode: '0755'
+      when: not dhcpcd_conf.stat.exists
+      
+    - name: Make default gateway persistent with interfaces file (if dhcpcd doesn't exist)
+      copy:
+        dest: /etc/network/interfaces.d/eth0
+        content: |
+          auto eth0
+          iface eth0 inet dhcp
+          gateway {{ router_ip }}
+        mode: '0644'
+      when: not dhcpcd_conf.stat.exists
+        
+    - name: Test internet connectivity
+      command: ping -c 1 -W 2 8.8.8.8
+      register: ping_result
+      changed_when: false
+      ignore_errors: yes
+      
+    - name: Display connectivity test result
+      debug:
+        msg: "Internet connectivity test {{ 'succeeded' if ping_result.rc == 0 else 'failed' }}"

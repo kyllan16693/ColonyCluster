@@ -1,0 +1,34 @@
+---
+- name: Start Ant Simulation Server on Control Node
+  hosts: pi_control
+  become: no
+  
+  tasks:
+    - name: Start simulation server on pi1
+      shell: DISPLAY=:0 cd ~/Desktop/ant-sim && python3 simulation_server.py
+      async: 3600
+      poll: 0
+      register: server_job
+      environment:
+        DISPLAY: ":0"
+      
+    - name: Display server job info
+      debug:
+        var: server_job
+
+- name: Start Ant Simulation Clients on Compute Nodes
+  hosts: pi_compute
+  become: no
+  
+  tasks:
+    - name: Start client on each compute node
+      shell: cd ~/ant-sim && python3 colony_client.py 192.168.3.101 23000
+      async: 3600
+      poll: 0
+      register: client_job
+      environment:
+        DISPLAY: ":0"
+      
+    - name: Display client job info
+      debug:
+        var: client_job

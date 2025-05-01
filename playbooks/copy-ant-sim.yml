@@ -1,0 +1,32 @@
+---
+- name: Copy Ant Simulation Files to Clients
+  hosts: pi_compute
+  become: no
+  
+  tasks:
+    - name: Create ant-sim directory on clients if it doesn't exist
+      file:
+        path: "~/ant-sim"
+        state: directory
+        mode: '0755'
+      
+    - name: Copy client script to clients
+      synchronize:
+        src: "/home/pi/Desktop/ant-sim/colony_client.py"
+        dest: "~/ant-sim/"
+      delegate_to: pi1.local
+      when: inventory_hostname != 'pi1.local'  # Skip copying to pi1 itself
+      
+    - name: Copy food detector to clients
+      synchronize:
+        src: "/home/pi/Desktop/ant-sim/food_validator.py"
+        dest: "~/ant-sim/"
+      delegate_to: pi1.local
+      when: inventory_hostname != 'pi1.local'
+      
+    - name: Copy shared utils to clients
+      synchronize:
+        src: "/home/pi/Desktop/ant-sim/shared_utils.py"
+        dest: "~/ant-sim/"
+      delegate_to: pi1.local
+      when: inventory_hostname != 'pi1.local'

@@ -1,0 +1,53 @@
+# This playbook is useful for debugging. It returns the uptime, memory usage, disk usage, and CPU temperature of all the nodes.
+# It is the same as ssh-ing into all the nodes and running the following commands:
+# hostname
+# ip a
+# uptime
+# free -h
+# df -h
+# vcgencmd measure_temp
+# ping -c 1 -W 1 1.1.1.1
+
+---
+- name: Check status of all Raspberry Pi nodes
+  hosts: pi_cluster
+  become: yes
+  
+  tasks:
+    - name: Get system uptime
+      command: uptime
+      register: uptime
+      changed_when: false
+      
+    - name: Get memory usage
+      command: free -h
+      register: memory
+      changed_when: false
+      
+    - name: Get disk usage
+      command: df -h
+      register: disk
+      changed_when: false
+      
+    - name: Get CPU temperature
+      command: vcgencmd measure_temp
+      register: temp
+      changed_when: false
+      
+    - name: Check internet connectivity
+      command: ping -c 1 -W 1 8.8.8.8
+      register: internet_check
+      changed_when: false
+      ignore_errors: yes
+      
+    - name: Display system information
+      debug:
+        msg: 
+          - "Hostname: {{ ansible_hostname }}"
+          - "IP Address: {{ ansible_default_ipv4.address }}"
+          - "Uptime: {{ uptime.stdout }}"
+          - "Memory: {{ memory.stdout_lines }}"
+          - "Disk: {{ disk.stdout_lines }}"
+          - "CPU Temperature: {{ temp.stdout }}"
+          - "Internet Access: {{ 'Yes' if internet_check.rc == 0 else 'No' }}"
+          - "Node Type: {{ 'Control Node' if inventory_hostname in groups['pi_control'] else 'Compute Node' }}" 

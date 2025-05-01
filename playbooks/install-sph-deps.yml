@@ -1,0 +1,28 @@
+---
+# This playbook first updates all Pi nodes using the update_pis playbook
+# and then installs graphics-related dependencies required for development
+
+- name: Import update_pis playbook
+  import_playbook: update_pis.yml
+
+- name: Install graphics dependencies
+  hosts: pi_cluster
+  become: yes
+  
+  tasks:
+    - name: Install graphics-related dependencies
+      apt:
+        name:
+          - libgles2-mesa
+          - libgles2-mesa-dev
+          - libegl1
+          - libegl-dev
+          - libraspberrypi0
+          - libraspberrypi-dev
+          - libglew-dev
+          - libfreetype6-dev
+          - build-essential
+          - libgbm-dev 
+          - libdrm-dev
+        state: present
+        update_cache: yes 

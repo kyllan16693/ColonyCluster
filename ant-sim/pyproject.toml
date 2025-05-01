@@ -1,0 +1,7 @@
+[project]
+name = "ant-sim"
+version = "0.1.0"
+description = "A simulation of ant colonies to show the power of cluster computing"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []

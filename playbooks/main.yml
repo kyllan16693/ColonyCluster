@@ -1,0 +1,17 @@
+---
+- name: Set up Pi cluster with pi1 as router and update all nodes
+  hosts: localhost
+  gather_facts: no
+  
+  tasks:
+    - name: Configure pi1 as router for the cluster
+      import_playbook: router.yml
+      
+    - name: Update all Pi nodes
+      import_playbook: update_pis_direct.yml 
+
+    - name: Set up python virtual environment on all nodes
+      import_playbook: setup_python.yml
+
+    - name: Check status of all Pi nodes
+      import_playbook: check_status.yml
